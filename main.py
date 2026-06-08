@@ -1,9 +1,34 @@
+import time
 from typing import Annotated
-from fastapi import FastAPI, HTTPException, status, Query, Cookie
+from fastapi import FastAPI, HTTPException, status, Query, Cookie, Form, Request
+from fastapi.responses import HTMLResponse
 from schemas import BookCreate
 
 app = FastAPI(title="Books API")
 
+# Middleware для логирования запросов
+
+@app.middleware("http")
+async def log_requests_and_add_time(request: Request, call_next):
+    # 1. Запись времени до того, как запрос пойдет дальше
+    start_time = time.perf_counter()
+    
+    # 2. Вывод информации о входящем запросе в терминал
+    print(f"- Входящий запрос: {request.method} {request.url.path}")
+    
+    # 3. Передача запроса в функции
+    response = await call_next(request)
+    
+    # 4. Запрос вернулся. подсчет, сколько времени прошло
+    process_time = time.perf_counter() - start_time
+    
+    # 5. Добавляем это время в заголовки ответа и выводим в лог
+    response.headers["X-Process-Time"] = str(process_time)
+    print(f"- Ответ отправлен. Время обработки: {process_time:.4f} сек.\n")
+    
+    return response
+
+# Временные базы данных
 books_db = [
     {
         "id": 1,
@@ -11,6 +36,66 @@ books_db = [
         "author": "Jack London"
     }
 ]
+
+users_db = []
+
+# Frontend
+@app.get("/register", response_class=HTMLResponse, tags=["Frontend"])
+def get_register_page():
+    html_content =   """
+    <html>
+        <head>
+            <title>Регистрация</title>
+            <style>
+                body { font-family: Arial; margin: 40px; }
+                .form-container { width: 300px; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+                input { width: 100%; margin-bottom: 10px; padding: 8px; }
+                button { width: 100%; padding: 10px; background-color: #28a745; color: white; border: none; cursor: pointer; }
+                button:hover { background-color: #218838; }
+            </style>
+        </head>
+        <body>
+            <div class="form-container">
+                <h2>Регистрация пользователя</h2>
+                <form action="/register" method="post">
+                    <label>Имя пользователя:</label>
+                    <input type="text" name="username" required>
+                    
+                    <label>Пароль:</label>
+                    <input type="password" name="password" required>
+                    
+                    <button type="submit">Зарегистрироваться</button>
+                </form>
+            </div>
+        </body>
+    </html>
+    """    
+    return html_content
+
+# Обработка данных из формы
+@app.post("/register", tags=["Users"])
+def register_user(
+    username: Annotated[str, Form()],
+    password: Annotated[str, Form()]
+):
+    # проверка на наличие пользователя
+    for user in users_db:
+        if user["username"] == username:
+            raise HTTPException(status_code=400, detail="Пользователь уже существует")
+
+    # Создание нового пользователя
+    new_user = {
+        "id": len(users_db) + 1,
+        "username": username,
+        "password": password
+    }
+    users_db.append(new_user)
+
+    # Вывод информации о пользователе
+    return {
+        "message": f"Пользователь {username} успешно зарегистрирован!",
+        "total_users": len(users_db)
+    }
 
 @app.get("/books/search", status_code=status.HTTP_200_OK)
 def search_books(
